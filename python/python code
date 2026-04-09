@@ -1,0 +1,47 @@
+import serial, socket, time
+
+# Config
+USB_PORT = "COM3"
+DRONE_IP = "192.168.4.1"
+HOVER_T = 145
+RAMP_UP = 2.0
+LDR_ON = 1800 # Dark
+LDR_OFF = 800 # Bright
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+ser = serial.Serial(USB_PORT, 115200, timeout=0.01)
+
+cur_t = 0.0
+cur_p, cur_r = 0, 0
+engaged = False
+next_heartbeat = time.perf_counter()
+
+print("Bridge Online. Heartbeat: 50Hz")
+
+try:
+    while True:
+        # 1. READ SERIAL
+        if ser.in_waiting > 100: ser.reset_input_buffer()
+        line = ser.readline().decode('utf-8', errors='ignore').strip()
+        if line:
+            try:
+                p, r, ldr = map(float, line.split(','))
+                if ldr > LDR_ON: engaged = True
+                elif ldr < LDR_OFF: engaged = False
+                cur_p = max(min(p, 20), -20) if abs(p) > 5 else 0
+                cur_r = max(min(r, 20), -20) if abs(r) > 5 else 0
+            except: pass
+
+        # 2. PRECISION HEARTBEAT (50Hz)
+        if time.perf_counter() >= next_heartbeat:
+            target = HOVER_T if engaged else 0
+            if cur_t < target: cur_t = min(cur_t + RAMP_UP, target)
+            else: cur_t = max(cur_t - 5.0, target)
+            
+            cmd = f"{int(cur_t)},{cur_p:.1f},{cur_r:.1f},0"
+            sock.sendto(cmd.encode(), (DRONE_IP, 8888))
+            next_heartbeat += 0.02 # Exactly 20ms later
+            print(f"Sending: {cmd}    ", end='\r')
+
+except KeyboardInterrupt:
+    ser.close()
