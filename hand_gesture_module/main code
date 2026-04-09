@@ -1,0 +1,35 @@
+#include <Wire.h>
+const int LDR_PIN = 34;
+const float alpha = 0.5; // High responsiveness
+float sP = 0, sR = 0, offP = 0, offR = 0;
+
+void readMPU(float &p, float &r) {
+    Wire.beginTransmission(0x68); Wire.write(0x3B); Wire.endTransmission(false);
+    Wire.requestFrom(0x68, 6, true);
+    int16_t ax = Wire.read()<<8|Wire.read();
+    int16_t ay = Wire.read()<<8|Wire.read();
+    int16_t az = Wire.read()<<8|Wire.read();
+    p = atan2(ay, az) * 180 / PI;
+    r = atan2(-ax, sqrt(ay*ay + az*az)) * 180 / PI;
+}
+
+void setup() {
+    Serial.begin(115200); Wire.begin();
+    Wire.beginTransmission(0x68); Wire.write(0x6B); Wire.write(0); Wire.endTransmission(true);
+    delay(1000);
+    float sp=0, sr=0;
+    for(int i=0; i<100; i++){ float p,r; readMPU(p,r); sp+=p; sr+=r; delay(5); }
+    offP = sp/100.0; offR = sr/100.0;
+}
+
+void loop() {
+    float p, r; readMPU(p, r);
+    sP = (alpha * (p - offP)) + (1.0 - alpha) * sP;
+    sR = (alpha * (r - offR)) + (1.0 - alpha) * sR;
+    
+    long ldrSum = 0;
+    for(int i=0; i<10; i++) ldrSum += analogRead(LDR_PIN);
+    
+    Serial.printf("%.2f,%.2f,%d\n", sP, sR, (int)(ldrSum/10));
+    delay(10); // 100Hz
+}
